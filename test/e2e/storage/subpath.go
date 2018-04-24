@@ -53,13 +53,14 @@ type volInfo struct {
 type volSource interface {
 	createVolume(f *framework.Framework) volInfo
 	cleanupVolume(f *framework.Framework)
+	getReadOnlyVolumeSpec() *v1.VolumeSource
 }
 
 var initVolSources = map[string]func() volSource{
 	"hostPath":         initHostpath,
 	"hostPathSymlink":  initHostpathSymlink,
 	"emptyDir":         initEmptydir,
-	"gcePD":            initGCEPD,
+	"gcePDPVC":         initGCEPDPVC,
 	"gcePDPartitioned": initGCEPDPartition,
 	"nfs":              initNFS,
 	"nfsPVC":           initNFSPVC,
@@ -306,6 +307,46 @@ var _ = SIGDescribe("Subpath", func() {
 
 				testPodContainerRestart(f, pod, filePathInVolume, filePathInSubpath)
 			})
+
+			It("should support readOnly directory specified in the volumeMount", func() {
+				// Create the directory
+				setInitCommand(pod, fmt.Sprintf("mkdir -p %s", subPathDir))
+
+				// Write the file in the volume from container 1
+				setWriteCommand(filePathInVolume, &pod.Spec.Containers[1])
+
+				// Read it from inside the subPath from container 0
+				pod.Spec.Containers[0].VolumeMounts[0].ReadOnly = true
+				testReadFile(f, filePathInSubpath, pod, 0)
+			})
+
+			It("should support readOnly file specified in the volumeMount", func() {
+				// Create the file
+				setInitCommand(pod, fmt.Sprintf("touch %s", subPathDir))
+
+				// Write the file in the volume from container 1
+				setWriteCommand(subPathDir, &pod.Spec.Containers[1])
+
+				// Read it from inside the subPath from container 0
+				pod.Spec.Containers[0].VolumeMounts[0].ReadOnly = true
+				testReadFile(f, volumePath, pod, 0)
+			})
+
+			It("should support readOnly directory specified in the volumeSource", func() {
+				roVol := vol.getReadOnlyVolumeSpec()
+				if roVol == nil {
+					framework.Skipf("Volume type %v doesn't support readOnly source", curVolType)
+				}
+
+				// Initialize content in the volume while it's writable
+				initVolumeContent(f, pod, filePathInVolume, filePathInSubpath)
+
+				// Set volume source to read only
+				pod.Spec.Volumes[0].VolumeSource = *roVol
+
+				// Read it from inside the subPath from container 0
+				testReadFile(f, filePathInSubpath, pod, 0)
+			})
 		})
 	}
 
@@ -375,6 +416,12 @@ func testPodSubpath(subpath, volumeType string, source *v1.VolumeSource) *v1.Pod
 			},
 		},
 	}
+}
+
+func clearSubpathPodCommands(pod *v1.Pod) {
+	pod.Spec.InitContainers[0].Command = nil
+	pod.Spec.Containers[0].Args = nil
+	pod.Spec.Containers[1].Args = nil
 }
 
 func setInitCommand(pod *v1.Pod, command string) {
@@ -548,6 +595,23 @@ func testPodContainerRestart(f *framework.Framework, pod *v1.Pod, fileInVolume, 
 	Expect(strings.TrimSpace(out)).To(BeEquivalentTo("test-after"))
 }
 
+func initVolumeContent(f *framework.Framework, pod *v1.Pod, volumeFilepath, subpathFilepath string) {
+	setWriteCommand(volumeFilepath, &pod.Spec.Containers[1])
+	setReadCommand(subpathFilepath, &pod.Spec.Containers[0])
+
+	By(fmt.Sprintf("Creating pod to write volume content %s", pod.Name))
+	f.TestContainerOutput("subpath", pod, 0, []string{
+		"content of file \"" + subpathFilepath + "\": mount-tester new file",
+	})
+
+	By(fmt.Sprintf("Deleting pod %s", pod.Name))
+	err := framework.DeletePodWithWait(f, f.ClientSet, pod)
+	Expect(err).NotTo(HaveOccurred(), "while deleting pod")
+
+	// This pod spec is going to be reused; reset all the commands
+	clearSubpathPodCommands(pod)
+}
+
 func podContainerExec(pod *v1.Pod, containerIndex int, bashExec string) (string, error) {
 	return framework.RunKubectl("exec", fmt.Sprintf("--namespace=%s", pod.Namespace), pod.Name, "--container", pod.Spec.Containers[containerIndex].Name, "--", "/bin/sh", "-c", bashExec)
 }
@@ -567,6 +631,10 @@ func (s *hostpathSource) createVolume(f *framework.Framework) volInfo {
 			},
 		},
 	}
+}
+
+func (s *hostpathSource) getReadOnlyVolumeSpec() *v1.VolumeSource {
+	return nil
 }
 
 func (s *hostpathSource) cleanupVolume(f *framework.Framework) {
@@ -644,6 +712,10 @@ func (s *hostpathSymlinkSource) createVolume(f *framework.Framework) volInfo {
 	}
 }
 
+func (s *hostpathSymlinkSource) getReadOnlyVolumeSpec() *v1.VolumeSource {
+	return nil
+}
+
 func (s *hostpathSymlinkSource) cleanupVolume(f *framework.Framework) {
 }
 
@@ -662,19 +734,23 @@ func (s *emptydirSource) createVolume(f *framework.Framework) volInfo {
 	}
 }
 
+func (s *emptydirSource) getReadOnlyVolumeSpec() *v1.VolumeSource {
+	return nil
+}
+
 func (s *emptydirSource) cleanupVolume(f *framework.Framework) {
 }
 
-type gcepdSource struct {
+type gcepdPVCSource struct {
 	pvc *v1.PersistentVolumeClaim
 }
 
-func initGCEPD() volSource {
+func initGCEPDPVC() volSource {
 	framework.SkipUnlessProviderIs("gce", "gke")
-	return &gcepdSource{}
+	return &gcepdPVCSource{}
 }
 
-func (s *gcepdSource) createVolume(f *framework.Framework) volInfo {
+func (s *gcepdPVCSource) createVolume(f *framework.Framework) volInfo {
 	var err error
 
 	framework.Logf("Creating GCE PD volume via dynamic provisioning")
@@ -696,7 +772,16 @@ func (s *gcepdSource) createVolume(f *framework.Framework) volInfo {
 	}
 }
 
-func (s *gcepdSource) cleanupVolume(f *framework.Framework) {
+func (s *gcepdPVCSource) getReadOnlyVolumeSpec() *v1.VolumeSource {
+	return &v1.VolumeSource{
+		PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{
+			ClaimName: s.pvc.Name,
+			ReadOnly:  true,
+		},
+	}
+}
+
+func (s *gcepdPVCSource) cleanupVolume(f *framework.Framework) {
 	if s.pvc != nil {
 		err := f.ClientSet.CoreV1().PersistentVolumeClaims(f.Namespace.Name).Delete(s.pvc.Name, nil)
 		framework.ExpectNoError(err, "Error deleting PVC")
@@ -734,6 +819,10 @@ func (s *gcepdPartitionSource) createVolume(f *framework.Framework) volInfo {
 	}
 }
 
+func (s *gcepdPartitionSource) getReadOnlyVolumeSpec() *v1.VolumeSource {
+	return nil
+}
+
 func (s *gcepdPartitionSource) cleanupVolume(f *framework.Framework) {
 	if s.diskName != "" {
 		// err := framework.DeletePDWithRetry(s.diskName)
@@ -743,6 +832,7 @@ func (s *gcepdPartitionSource) cleanupVolume(f *framework.Framework) {
 
 type nfsSource struct {
 	serverPod *v1.Pod
+	serverIP  string
 }
 
 func initNFS() volSource {
@@ -750,17 +840,25 @@ func initNFS() volSource {
 }
 
 func (s *nfsSource) createVolume(f *framework.Framework) volInfo {
-	var serverIP string
-
 	framework.Logf("Creating NFS server")
-	_, s.serverPod, serverIP = framework.NewNFSServer(f.ClientSet, f.Namespace.Name, []string{"-G", "777", "/exports"})
+	_, s.serverPod, s.serverIP = framework.NewNFSServer(f.ClientSet, f.Namespace.Name, []string{"-G", "777", "/exports"})
 
 	return volInfo{
 		source: &v1.VolumeSource{
 			NFS: &v1.NFSVolumeSource{
-				Server: serverIP,
+				Server: s.serverIP,
 				Path:   "/exports",
 			},
+		},
+	}
+}
+
+func (s *nfsSource) getReadOnlyVolumeSpec() *v1.VolumeSource {
+	return &v1.VolumeSource{
+		NFS: &v1.NFSVolumeSource{
+			Server:   s.serverIP,
+			Path:     "/exports",
+			ReadOnly: true,
 		},
 	}
 }
@@ -790,6 +888,16 @@ func (s *glusterSource) createVolume(f *framework.Framework) volInfo {
 				EndpointsName: "gluster-server",
 				Path:          "test_vol",
 			},
+		},
+	}
+}
+
+func (s *glusterSource) getReadOnlyVolumeSpec() *v1.VolumeSource {
+	return &v1.VolumeSource{
+		Glusterfs: &v1.GlusterfsVolumeSource{
+			EndpointsName: "gluster-server",
+			Path:          "test_vol",
+			ReadOnly:      true,
 		},
 	}
 }
@@ -849,6 +957,15 @@ func (s *nfsPVCSource) createVolume(f *framework.Framework) volInfo {
 			PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{
 				ClaimName: pvc.Name,
 			},
+		},
+	}
+}
+
+func (s *nfsPVCSource) getReadOnlyVolumeSpec() *v1.VolumeSource {
+	return &v1.VolumeSource{
+		PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{
+			ClaimName: s.pvc.Name,
+			ReadOnly:  true,
 		},
 	}
 }
