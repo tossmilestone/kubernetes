@@ -376,12 +376,20 @@ func (m *ManagerImpl) addEndpoint(r *pluginapi.RegisterRequest) {
 func (m *ManagerImpl) GetCapacity() (v1.ResourceList, []string) {
 	needsUpdateCheckpoint := false
 	var capacity = v1.ResourceList{}
-	var deletedResources []string
+	deletedResources := sets.NewString()
 	m.mutex.Lock()
 	for resourceName, devices := range m.allDevices {
-		if _, ok := m.endpoints[resourceName]; !ok {
+		e, ok := m.endpoints[resourceName]
+		if (ok && e.stopGracePeriodExpired()) || !ok {
+			// The resources contained in endpoints and allDevices
+			// should always be consistent. Otherwise, we run with the risk
+			// of failing to garbage collect non-existing resources or devices.
+			if !ok {
+				glog.Errorf("unexpected: allDevices and endpoints are out of sync")
+			}
+			delete(m.endpoints, resourceName)
 			delete(m.allDevices, resourceName)
-			deletedResources = append(deletedResources, resourceName)
+			deletedResources.Insert(resourceName)
 			needsUpdateCheckpoint = true
 		} else {
 			capacity[v1.ResourceName(resourceName)] = *resource.NewQuantity(int64(devices.Len()), resource.DecimalSI)
@@ -391,7 +399,7 @@ func (m *ManagerImpl) GetCapacity() (v1.ResourceList, []string) {
 	if needsUpdateCheckpoint {
 		m.writeCheckpoint()
 	}
-	return capacity, deletedResources
+	return capacity, deletedResources.UnsortedList()
 }
 
 // checkpointData struct is used to store pod to device allocation information
@@ -440,11 +448,11 @@ func (m *ManagerImpl) readCheckpoint() error {
 	defer m.mutex.Unlock()
 	m.podDevices.fromCheckpointData(data.PodDeviceEntries)
 	m.allocatedDevices = m.podDevices.devices()
-	for resource, devices := range data.RegisteredDevices {
+	for resource := range data.RegisteredDevices {
+		// During start up, creates empty allDevices list so that the resource capacity
+		// will stay zero till the corresponding device plugin re-registers.
 		m.allDevices[resource] = sets.NewString()
-		for _, dev := range devices {
-			m.allDevices[resource].Insert(dev)
-		}
+		m.endpoints[resource] = newStoppedEndpointImpl(resource, make(map[string]pluginapi.Device))
 	}
 	return nil
 }
