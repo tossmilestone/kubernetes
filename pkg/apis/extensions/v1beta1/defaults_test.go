@@ -17,6 +17,7 @@ limitations under the License.
 package v1beta1_test
 
 import (
+	"math"
 	"reflect"
 	"testing"
 
@@ -187,7 +188,8 @@ func TestSetDefaultDeployment(t *testing.T) {
 							MaxUnavailable: &defaultIntOrString,
 						},
 					},
-					Template: defaultTemplate,
+					Template:                defaultTemplate,
+					ProgressDeadlineSeconds: utilpointer.Int32Ptr(math.MaxInt32),
 				},
 			},
 		},
@@ -212,7 +214,8 @@ func TestSetDefaultDeployment(t *testing.T) {
 							MaxUnavailable: &defaultIntOrString,
 						},
 					},
-					Template: defaultTemplate,
+					Template:                defaultTemplate,
+					ProgressDeadlineSeconds: utilpointer.Int32Ptr(math.MaxInt32),
 				},
 			},
 		},
@@ -236,7 +239,8 @@ func TestSetDefaultDeployment(t *testing.T) {
 							MaxUnavailable: &defaultIntOrString,
 						},
 					},
-					Template: defaultTemplate,
+					Template:                defaultTemplate,
+					ProgressDeadlineSeconds: utilpointer.Int32Ptr(math.MaxInt32),
 				},
 			},
 		},
@@ -255,7 +259,8 @@ func TestSetDefaultDeployment(t *testing.T) {
 					Strategy: extensionsv1beta1.DeploymentStrategy{
 						Type: extensionsv1beta1.RecreateDeploymentStrategyType,
 					},
-					Template: defaultTemplate,
+					Template:                defaultTemplate,
+					ProgressDeadlineSeconds: utilpointer.Int32Ptr(math.MaxInt32),
 				},
 			},
 		},
