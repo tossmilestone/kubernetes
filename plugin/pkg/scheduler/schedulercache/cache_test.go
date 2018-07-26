@@ -585,12 +585,12 @@ func TestEphemeralStorageResource(t *testing.T) {
 					EphemeralStorage: 500,
 				},
 				nonzeroRequest: &Resource{
-					MilliCPU: priorityutil.DefaultMilliCPURequest,
+					MilliCPU: priorityutil.DefaultMilliCpuRequest,
 					Memory:   priorityutil.DefaultMemoryRequest,
 				},
 				allocatableResource: &Resource{},
 				pods:                []*v1.Pod{podE},
-				usedPorts:           schedutil.HostPortInfo{},
+				usedPorts:           map[string]bool{},
 			},
 		},
 	}

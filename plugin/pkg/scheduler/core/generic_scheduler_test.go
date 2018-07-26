@@ -301,93 +301,6 @@ func TestGenericScheduler(t *testing.T) {
 				},
 			},
 		},
-		{
-			// Pod with existing PVC
-			predicates:   map[string]algorithm.FitPredicate{"true": truePredicate},
-			prioritizers: []algorithm.PriorityConfig{{Map: EqualPriorityMap, Weight: 1}},
-			nodes:        []string{"machine1", "machine2"},
-			pvcs:         []*v1.PersistentVolumeClaim{{ObjectMeta: metav1.ObjectMeta{Name: "existingPVC"}}},
-			pod: &v1.Pod{
-				ObjectMeta: metav1.ObjectMeta{Name: "ignore", UID: types.UID("ignore")},
-				Spec: v1.PodSpec{
-					Volumes: []v1.Volume{
-						{
-							VolumeSource: v1.VolumeSource{
-								PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{
-									ClaimName: "existingPVC",
-								},
-							},
-						},
-					},
-				},
-			},
-			expectedHosts: sets.NewString("machine1", "machine2"),
-			name:          "existing PVC",
-			wErr:          nil,
-		},
-		{
-			// Pod with non existing PVC
-			predicates:   map[string]algorithm.FitPredicate{"true": truePredicate},
-			prioritizers: []algorithm.PriorityConfig{{Map: EqualPriorityMap, Weight: 1}},
-			nodes:        []string{"machine1", "machine2"},
-			pod: &v1.Pod{
-				ObjectMeta: metav1.ObjectMeta{Name: "ignore", UID: types.UID("ignore")},
-				Spec: v1.PodSpec{
-					Volumes: []v1.Volume{
-						{
-							VolumeSource: v1.VolumeSource{
-								PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{
-									ClaimName: "unknownPVC",
-								},
-							},
-						},
-					},
-				},
-			},
-			name:       "unknown PVC",
-			expectsErr: true,
-			wErr:       fmt.Errorf("persistentvolumeclaim \"unknownPVC\" not found"),
-		},
-		{
-			// Pod with deleting PVC
-			predicates:   map[string]algorithm.FitPredicate{"true": truePredicate},
-			prioritizers: []algorithm.PriorityConfig{{Map: EqualPriorityMap, Weight: 1}},
-			nodes:        []string{"machine1", "machine2"},
-			pvcs:         []*v1.PersistentVolumeClaim{{ObjectMeta: metav1.ObjectMeta{Name: "existingPVC", DeletionTimestamp: &metav1.Time{}}}},
-			pod: &v1.Pod{
-				ObjectMeta: metav1.ObjectMeta{Name: "ignore", UID: types.UID("ignore")},
-				Spec: v1.PodSpec{
-					Volumes: []v1.Volume{
-						{
-							VolumeSource: v1.VolumeSource{
-								PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{
-									ClaimName: "existingPVC",
-								},
-							},
-						},
-					},
-				},
-			},
-			name:       "deleted PVC",
-			expectsErr: true,
-			wErr:       fmt.Errorf("persistentvolumeclaim \"existingPVC\" is being deleted"),
-		},
-		{
-			// alwaysCheckAllPredicates is true
-			predicates:               map[string]algorithm.FitPredicate{"true": truePredicate, "matches": matchesPredicate, "false": falsePredicate},
-			prioritizers:             []algorithm.PriorityConfig{{Map: EqualPriorityMap, Weight: 1}},
-			alwaysCheckAllPredicates: true,
-			nodes: []string{"1"},
-			pod:   &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "2", UID: types.UID("2")}},
-			name:  "test alwaysCheckAllPredicates is true",
-			wErr: &FitError{
-				Pod:         &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "2", UID: types.UID("2")}},
-				NumAllNodes: 1,
-				FailedPredicates: FailedPredicateMap{
-					"1": []algorithm.PredicateFailureReason{algorithmpredicates.ErrFakePredicate, algorithmpredicates.ErrFakePredicate},
-				},
-			},
-		},
 	}
 	for _, test := range tests {
 		cache := schedulercache.New(time.Duration(0), wait.NeverStop)
@@ -397,7 +310,6 @@ func TestGenericScheduler(t *testing.T) {
 		for _, name := range test.nodes {
 			cache.AddNode(&v1.Node{ObjectMeta: metav1.ObjectMeta{Name: name}})
 		}
-
 		scheduler := NewGenericScheduler(
 			cache, nil, NewSchedulingQueue(), test.predicates, algorithm.EmptyPredicateMetadataProducer, test.prioritizers, algorithm.EmptyMetadataProducer, []algorithm.SchedulerExtender{}, nil)
 		machine, err := scheduler.Schedule(test.pod, schedulertesting.FakeNodeLister(makeNodeList(test.nodes)))
