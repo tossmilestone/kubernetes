@@ -87,7 +87,7 @@ import (
 	"k8s.io/kubernetes/pkg/cloudprovider/providers/azure"
 	gcecloud "k8s.io/kubernetes/pkg/cloudprovider/providers/gce"
 	"k8s.io/kubernetes/pkg/controller"
-	nodectlr "k8s.io/kubernetes/pkg/controller/node"
+	nodectlr "k8s.io/kubernetes/pkg/controller/nodelifecycle"
 	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/kubectl"
 	kubeletapis "k8s.io/kubernetes/pkg/kubelet/apis"
