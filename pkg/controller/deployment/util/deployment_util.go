@@ -18,6 +18,7 @@ package util
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -831,7 +832,7 @@ var nowFn = func() time.Time { return time.Now() }
 // is older than progressDeadlineSeconds or a Progressing condition with a TimedOutReason reason already
 // exists.
 func DeploymentTimedOut(deployment *extensions.Deployment, newStatus *extensions.DeploymentStatus) bool {
-	if deployment.Spec.ProgressDeadlineSeconds == nil {
+	if !HasProgressDeadline(deployment) {
 		return false
 	}
 
@@ -975,4 +976,8 @@ func ResolveFenceposts(maxSurge, maxUnavailable *intstrutil.IntOrString, desired
 	}
 
 	return int32(surge), int32(unavailable), nil
+}
+
+func HasProgressDeadline(d *apps.Deployment) bool {
+	return d.Spec.ProgressDeadlineSeconds != nil && *d.Spec.ProgressDeadlineSeconds != math.MaxInt32
 }
