@@ -18,6 +18,7 @@ package options
 
 import (
 	"fmt"
+	"k8s.io/kubernetes/pkg/master/ports"
 	"net"
 	"os"
 	"strconv"
@@ -85,7 +86,7 @@ func NewOptions() (*Options, error) {
 
 	o := &Options{
 		ComponentConfig: *cfg,
-		SecureServing:   nil, // TODO: enable with apiserveroptions.NewSecureServingOptions()
+		SecureServing:   apiserveroptions.NewSecureServingOptions(),
 		CombinedInsecureServing: &CombinedInsecureServingOptions{
 			Healthz: &apiserveroptions.DeprecatedInsecureServingOptions{
 				BindNetwork: "tcp",
@@ -96,13 +97,20 @@ func NewOptions() (*Options, error) {
 			BindPort:    hport,
 			BindAddress: hhost,
 		},
-		Authentication: nil, // TODO: enable with apiserveroptions.NewDelegatingAuthenticationOptions()
-		Authorization:  nil, // TODO: enable with apiserveroptions.NewDelegatingAuthorizationOptions()
+		Authentication: apiserveroptions.NewDelegatingAuthenticationOptions(),
+		Authorization:  apiserveroptions.NewDelegatingAuthorizationOptions(),
 		Deprecated: &DeprecatedOptions{
 			UseLegacyPolicyConfig:    false,
 			PolicyConfigMapNamespace: metav1.NamespaceSystem,
 		},
 	}
+	o.Authentication.RemoteKubeConfigFileOptional = true
+	o.Authorization.RemoteKubeConfigFileOptional = true
+	o.Authorization.AlwaysAllowPaths = []string{"/healthz"}
+
+	o.SecureServing.ServerCert.CertDirectory = "/var/run/kubernetes"
+	o.SecureServing.ServerCert.PairName = "kube-scheduler"
+	o.SecureServing.BindPort = ports.SchedulerPort
 
 	return o, nil
 }
