@@ -18,6 +18,7 @@ package framework
 
 import (
 	"fmt"
+	"k8s.io/kubernetes/pkg/master/ports"
 	"net/http"
 	"strconv"
 	"strings"
@@ -229,7 +230,7 @@ func GetE2eFirewalls(masterName, masterTag, nodeTag, network, clusterIpRange str
 		Allowed: []*compute.FirewallAllowed{
 			{
 				IPProtocol: "tcp",
-				Ports:      []string{"443"},
+				Ports:      []string{"443", fmt.Sprintf("%d", ports.SchedulerPort)},
 			},
 		},
 	})
