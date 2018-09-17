@@ -25,6 +25,8 @@ import (
 	"github.com/golang/glog"
 	"github.com/spf13/pflag"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/apiserver/pkg/server/mux"
+	"k8s.io/apiserver/pkg/server/routes"
 )
 
 const logFlushFreqFlagName = "log-flush-frequency"
@@ -76,4 +78,11 @@ func GlogSetter(val string) (string, error) {
 		return "", fmt.Errorf("failed set glog.logging.verbosity %s: %v", val, err)
 	}
 	return fmt.Sprintf("successfully set glog.logging.verbosity to %s", val), nil
+}
+
+// InstallLogLevelHandler installs a handler to dynamic set logging level.
+// e.g. To set log level to 2, sends a PUT request to API server like
+// `curl http://127.0.0.1:8080/debug/flags/v -XPUT -d"2"`.
+func InstallLogLevelHandler(pathRecorderMux *mux.PathRecorderMux) {
+	pathRecorderMux.HandleFunc("/debug/flags/v", routes.StringFlagPutHandler(GlogSetter))
 }

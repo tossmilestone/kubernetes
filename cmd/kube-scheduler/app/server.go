@@ -32,6 +32,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apiserver/pkg/authentication/authenticator"
 	"k8s.io/apiserver/pkg/authorization/authorizer"
+	"k8s.io/apiserver/pkg/util/logs"
 	genericapifilters "k8s.io/apiserver/pkg/endpoints/filters"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
 	genericfilters "k8s.io/apiserver/pkg/server/filters"
@@ -259,6 +260,7 @@ func newMetricsHandler(config *kubeschedulerconfig.KubeSchedulerConfiguration) h
 			goruntime.SetBlockProfileRate(1)
 		}
 	}
+	logs.InstallLogLevelHandler(pathRecorderMux)
 	return pathRecorderMux
 }
 
@@ -277,6 +279,7 @@ func newHealthzHandler(config *kubeschedulerconfig.KubeSchedulerConfiguration, s
 			goruntime.SetBlockProfileRate(1)
 		}
 	}
+	logs.InstallLogLevelHandler(pathRecorderMux)
 	return pathRecorderMux
 }
 

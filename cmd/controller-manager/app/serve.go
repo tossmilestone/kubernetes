@@ -30,6 +30,7 @@ import (
 	"k8s.io/apiserver/pkg/server/healthz"
 	"k8s.io/apiserver/pkg/server/mux"
 	"k8s.io/apiserver/pkg/server/routes"
+	"k8s.io/apiserver/pkg/util/logs"
 	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	"k8s.io/kubernetes/pkg/util/configz"
 )
@@ -64,6 +65,7 @@ func NewBaseHandler(c *apiserverconfig.DebuggingConfiguration) *mux.PathRecorder
 	}
 	configz.InstallHandler(mux)
 	mux.Handle("/metrics", prometheus.Handler())
+	logs.InstallLogLevelHandler(mux)
 
 	return mux
 }
