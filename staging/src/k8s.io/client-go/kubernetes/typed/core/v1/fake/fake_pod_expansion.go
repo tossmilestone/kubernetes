@@ -26,6 +26,7 @@ import (
 func (c *FakePods) Bind(binding *v1.Binding) error {
 	action := core.CreateActionImpl{}
 	action.Verb = "create"
+	action.Namespace = binding.Namespace
 	action.Resource = podsResource
 	action.Subresource = "bindings"
 	action.Object = binding

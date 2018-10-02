@@ -19,8 +19,6 @@ package factory
 import (
 	"errors"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"reflect"
 	"testing"
 	"time"
@@ -28,13 +26,12 @@ import (
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
-	restclient "k8s.io/client-go/rest"
+	"k8s.io/client-go/kubernetes/fake"
+	clienttesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
-	utiltesting "k8s.io/client-go/util/testing"
 	apitesting "k8s.io/kubernetes/pkg/api/testing"
 	"k8s.io/kubernetes/pkg/scheduler"
 	"k8s.io/kubernetes/pkg/scheduler/algorithm"
@@ -53,14 +50,7 @@ const (
 )
 
 func TestCreate(t *testing.T) {
-	handler := utiltesting.FakeHandler{
-		StatusCode:   500,
-		ResponseBody: "",
-		T:            t,
-	}
-	server := httptest.NewServer(&handler)
-	defer server.Close()
-	client := clientset.NewForConfigOrDie(&restclient.Config{Host: server.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &schema.GroupVersion{Group: "", Version: "v1"}}})
+	client := fake.NewSimpleClientset()
 	factory := newConfigFactory(client, v1.DefaultHardPodAffinitySymmetricWeight)
 	factory.Create()
 }
@@ -71,14 +61,7 @@ func TestCreateFromConfig(t *testing.T) {
 	var configData []byte
 	var policy schedulerapi.Policy
 
-	handler := utiltesting.FakeHandler{
-		StatusCode:   500,
-		ResponseBody: "",
-		T:            t,
-	}
-	server := httptest.NewServer(&handler)
-	defer server.Close()
-	client := clientset.NewForConfigOrDie(&restclient.Config{Host: server.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &schema.GroupVersion{Group: "", Version: "v1"}}})
+	client := fake.NewSimpleClientset()
 	factory := newConfigFactory(client, v1.DefaultHardPodAffinitySymmetricWeight)
 
 	// Pre-register some predicate and priority functions
@@ -116,14 +99,7 @@ func TestCreateFromConfigWithHardPodAffinitySymmetricWeight(t *testing.T) {
 	var configData []byte
 	var policy schedulerapi.Policy
 
-	handler := utiltesting.FakeHandler{
-		StatusCode:   500,
-		ResponseBody: "",
-		T:            t,
-	}
-	server := httptest.NewServer(&handler)
-	defer server.Close()
-	client := clientset.NewForConfigOrDie(&restclient.Config{Host: server.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &schema.GroupVersion{Group: "", Version: "v1"}}})
+	client := fake.NewSimpleClientset()
 	factory := newConfigFactory(client, v1.DefaultHardPodAffinitySymmetricWeight)
 
 	// Pre-register some predicate and priority functions
@@ -162,14 +138,7 @@ func TestCreateFromEmptyConfig(t *testing.T) {
 	var configData []byte
 	var policy schedulerapi.Policy
 
-	handler := utiltesting.FakeHandler{
-		StatusCode:   500,
-		ResponseBody: "",
-		T:            t,
-	}
-	server := httptest.NewServer(&handler)
-	defer server.Close()
-	client := clientset.NewForConfigOrDie(&restclient.Config{Host: server.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &schema.GroupVersion{Group: "", Version: "v1"}}})
+	client := fake.NewSimpleClientset()
 	factory := newConfigFactory(client, v1.DefaultHardPodAffinitySymmetricWeight)
 
 	configData = []byte(`{}`)
@@ -184,14 +153,7 @@ func TestCreateFromEmptyConfig(t *testing.T) {
 // predicate/priority.
 // The predicate/priority from DefaultProvider will be used.
 func TestCreateFromConfigWithUnspecifiedPredicatesOrPriorities(t *testing.T) {
-	handler := utiltesting.FakeHandler{
-		StatusCode:   500,
-		ResponseBody: "",
-		T:            t,
-	}
-	server := httptest.NewServer(&handler)
-	defer server.Close()
-	client := clientset.NewForConfigOrDie(&restclient.Config{Host: server.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &schema.GroupVersion{Group: "", Version: "v1"}}})
+	client := fake.NewSimpleClientset()
 	factory := newConfigFactory(client, v1.DefaultHardPodAffinitySymmetricWeight)
 
 	RegisterFitPredicate("PredicateOne", PredicateOne)
@@ -224,14 +186,7 @@ func TestCreateFromConfigWithUnspecifiedPredicatesOrPriorities(t *testing.T) {
 // predicate/priority.
 // Empty predicate/priority sets will be used.
 func TestCreateFromConfigWithEmptyPredicatesOrPriorities(t *testing.T) {
-	handler := utiltesting.FakeHandler{
-		StatusCode:   500,
-		ResponseBody: "",
-		T:            t,
-	}
-	server := httptest.NewServer(&handler)
-	defer server.Close()
-	client := clientset.NewForConfigOrDie(&restclient.Config{Host: server.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &schema.GroupVersion{Group: "", Version: "v1"}}})
+	client := fake.NewSimpleClientset()
 	factory := newConfigFactory(client, v1.DefaultHardPodAffinitySymmetricWeight)
 
 	RegisterFitPredicate("PredicateOne", PredicateOne)
@@ -283,24 +238,31 @@ func TestDefaultErrorFunc(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "bar"},
 		Spec:       apitesting.V1DeepEqualSafePodSpec(),
 	}
-	handler := utiltesting.FakeHandler{
-		StatusCode:   200,
-		ResponseBody: runtime.EncodeOrDie(schedulertesting.Test.Codec(), testPod),
-		T:            t,
-	}
-	mux := http.NewServeMux()
+	client := fake.NewSimpleClientset(&v1.PodList{Items: []v1.Pod{*testPod}})
+	requestReceived := false
+	client.PrependReactor("get", string(v1.ResourcePods),
+		func(action clienttesting.Action) (bool, runtime.Object, error) {
+				getAction, ok := action.(clienttesting.GetAction)
+				if !ok {
+					return true, nil, fmt.Errorf("can't cast get reactor event action object to GetAction interface")
+				}
+				name := getAction.GetName()
+				ns := action.GetNamespace()
+				if name != "foo" || ns != "bar" {
+					t.Errorf("Expected name %s namespace %s, got %s %s",
+						"foo", "bar", name, ns)
+				}
+				requestReceived = true
+				return false, nil, nil
+			})
 
-	// FakeHandler mustn't be sent requests other than the one you want to test.
-	mux.Handle(schedulertesting.Test.ResourcePath(string(v1.ResourcePods), "bar", "foo"), &handler)
-	server := httptest.NewServer(mux)
-	defer server.Close()
-	client := clientset.NewForConfigOrDie(&restclient.Config{Host: server.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &schema.GroupVersion{Group: "", Version: "v1"}}})
 	factory := newConfigFactory(client, v1.DefaultHardPodAffinitySymmetricWeight)
 	queue := &core.FIFO{FIFO: cache.NewFIFO(cache.MetaNamespaceKeyFunc)}
 	podBackoff := util.CreatePodBackoff(1*time.Millisecond, 1*time.Second)
 	errFunc := factory.MakeDefaultErrorFunc(podBackoff, queue)
 
 	errFunc(testPod, nil)
+
 	for {
 		// This is a terrible way to do this but I plan on replacing this
 		// whole error handling system in the future. The test will time
@@ -310,7 +272,9 @@ func TestDefaultErrorFunc(t *testing.T) {
 		if !exists {
 			continue
 		}
-		handler.ValidateRequest(t, schedulertesting.Test.ResourcePath(string(v1.ResourcePods), "bar", "foo"), "GET", nil)
+		if !requestReceived {
+			t.Errorf("Get pod request not received")
+		}
 		if e, a := testPod, got; !reflect.DeepEqual(e, a) {
 			t.Errorf("Expected %v, got %v", e, a)
 		}
@@ -371,35 +335,57 @@ func TestBind(t *testing.T) {
 }
 
 func testBind(binding *v1.Binding, t *testing.T) {
-	handler := utiltesting.FakeHandler{
-		StatusCode:   200,
-		ResponseBody: "",
-		T:            t,
+	testPod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: metav1.NamespaceDefault},
+		Spec:       apitesting.V1DeepEqualSafePodSpec(),
 	}
-	server := httptest.NewServer(&handler)
-	defer server.Close()
-	client := clientset.NewForConfigOrDie(&restclient.Config{Host: server.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &schema.GroupVersion{Group: "", Version: "v1"}}})
+	client := fake.NewSimpleClientset(&v1.PodList{Items: []v1.Pod{*testPod}})
+	expectedBody := runtime.EncodeOrDie(schedulertesting.Test.Codec(), binding)
+	requestReceived := false
+	client.PrependReactor("create", string(v1.ResourcePods), func(action clienttesting.Action) (bool, runtime.Object, error) {
+		requestReceived = true
+		createAction, ok := action.(clienttesting.CreateActionImpl)
+		if !ok {
+			err := fmt.Errorf("can't cast create reactor event action object to CreateActionImpl")
+			t.Errorf("Unexpected error: %s", err)
+			return true, nil, err
+		}
+
+		subResource := createAction.GetSubresource()
+		ns := action.GetNamespace()
+		if subResource != "bindings" || ns != metav1.NamespaceDefault {
+			t.Errorf("Unexpected resource request for %s/%s, expected %s/%s",
+				ns, subResource, metav1.NamespaceDefault, "bindings")
+			return false, nil, nil
+		}
+
+		obj, ok := createAction.GetObject().(*v1.Binding)
+		if !ok {
+			t.Errorf("Unexpected request body object, expected Binding object")
+			return true, nil, fmt.Errorf("can't cast object of create action to Binding object")
+		}
+
+		body := runtime.EncodeOrDie(schedulertesting.Test.Codec(), obj)
+		if expectedBody != string(body) {
+			t.Errorf("Expected %s, Got %s", expectedBody, body)
+		}
+		return false, nil, nil
+	})
+
 	b := binder{client}
 
 	if err := b.Bind(binding); err != nil {
 		t.Errorf("Unexpected error: %v", err)
 		return
 	}
-	expectedBody := runtime.EncodeOrDie(schedulertesting.Test.Codec(), binding)
-	handler.ValidateRequest(t,
-		schedulertesting.Test.SubResourcePath(string(v1.ResourcePods), metav1.NamespaceDefault, "foo", "binding"),
-		"POST", &expectedBody)
+
+	if !requestReceived {
+		t.Errorf("Request not received")
+	}
 }
 
 func TestInvalidHardPodAffinitySymmetricWeight(t *testing.T) {
-	handler := utiltesting.FakeHandler{
-		StatusCode:   500,
-		ResponseBody: "",
-		T:            t,
-	}
-	server := httptest.NewServer(&handler)
-	defer server.Close()
-	client := clientset.NewForConfigOrDie(&restclient.Config{Host: server.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &schema.GroupVersion{Group: "", Version: "v1"}}})
+	client := fake.NewSimpleClientset()
 	// factory of "default-scheduler"
 	factory := newConfigFactory(client, -1)
 	_, err := factory.Create()
@@ -409,14 +395,7 @@ func TestInvalidHardPodAffinitySymmetricWeight(t *testing.T) {
 }
 
 func TestInvalidFactoryArgs(t *testing.T) {
-	handler := utiltesting.FakeHandler{
-		StatusCode:   500,
-		ResponseBody: "",
-		T:            t,
-	}
-	server := httptest.NewServer(&handler)
-	defer server.Close()
-	client := clientset.NewForConfigOrDie(&restclient.Config{Host: server.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &schema.GroupVersion{Group: "", Version: "v1"}}})
+	client := fake.NewSimpleClientset()
 
 	testCases := []struct {
 		name                           string
@@ -539,7 +518,7 @@ func TestSkipPodUpdate(t *testing.T) {
 	}
 }
 
-func newConfigFactory(client *clientset.Clientset, hardPodAffinitySymmetricWeight int32) scheduler.Configurator {
+func newConfigFactory(client clientset.Interface, hardPodAffinitySymmetricWeight int32) scheduler.Configurator {
 	informerFactory := informers.NewSharedInformerFactory(client, 0)
 	return NewConfigFactory(&ConfigFactoryArgs{
 		v1.DefaultSchedulerName,
