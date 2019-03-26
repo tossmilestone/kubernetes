@@ -71,6 +71,11 @@ func TestValidateDockerInfo(t *testing.T) {
 			err:  false,
 			warn: true,
 		},
+		{
+			info: types.Info{Driver: "driver_2", ServerVersion: "18.09.3-ce"},
+			err:  false,
+			warn: false,
+		},
 	} {
 		warn, err := v.validateDockerInfo(spec, test.info)
 		if !test.err {
